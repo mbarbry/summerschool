@@ -1,57 +1,29 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "pngwriter.h"
+#include "laplacian.h"
 
-#define NX 258
-#define NY 258
+//#define DX 0.01
+//#define DY 0.01
 
-#define DX 0.01
-#define DY 0.01
-
-int main(void)
+void calc_laplacian(arr_str arr)
 {
-    int i, j, error_code;
-    double array[NX][NY];
-    double laplacian[NX][NY];
-
-    // First initalize the inner values to zero
-    for (i = 1; i < NX - 2; i++) {
-        for (j = 1; j < NY - 2; j++) {
-            array[i][j] = 0.0;
-        }
-    }
-
-    // Zero out the outer boundary of laplacian
-    for (i = 0; i < NX; i++)
-        laplacian[i][0] = laplacian[i][NY - 1] = 0.0;
-    for (j = 0; i < NY; j++)
-        laplacian[0][j] = laplacian[NX - 1][j] = 0.0;
-
-    // Initial conditions for top and bottom
-    for (i = 0; i < NX; i++) {
-        array[i][0] = 30.0;
-        array[i][NY - 1] = -10.0;
-    }
-    // left and right
-    for (j = 0; j < NY; j++) {
-        array[0][j] = 15.0;
-        array[NX - 1][j] = -25.0;
-    }
+    int i, j;
+    double fact1, fact2;
 
     // Evaluate the Laplacian
-    // *INDENT-OFF*
-#error Add the missing part
- 
-    // *INDENT-ON*
+    for (i=1; i<arr.nx-1; i++)
+    {
+      for (j=1; j<arr.ny-1; j++)
+      {
+        fact1 = (arr.input[get_index(i-1, j, arr.nx, arr.ny)] - 
+            2.0*arr.input[get_index(i, j, arr.nx, arr.ny)] 
+            + arr.input[get_index(i+1, j, arr.nx, arr.ny)])/(arr.dx2);
 
-    // Call the png writer routine
-    error_code = save_png((double *) laplacian, NX, NY, "datastructures_functions_heat-a_b.png", 'c');
+        fact2 = (arr.input[get_index(i, j-1, arr.nx, arr.ny)] - 
+            2.0*arr.input[get_index(i, j, arr.nx, arr.ny)] 
+            + arr.input[get_index(i, j+1, arr.nx, arr.ny)])/(arr.dy2);
 
-    if (error_code == 0) {
-        printf("Wrote the output file datastructures_functions_heat-a_b.png\n");
-    } else {
-        printf("Error while writing output file datastructures_functions_heat-a_b.png\n");
+        arr.laplacian[get_index(i, j, arr.nx, arr.ny)] = fact1 + fact2;
+      }
     }
-
-    return 0;
 }
