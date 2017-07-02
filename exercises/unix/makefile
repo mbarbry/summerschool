@@ -1,6 +1,6 @@
 
 prog: prog.c
-	cc -o $@ $^
+	mpicc -o $@ $^
 
 
 
