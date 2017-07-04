@@ -38,53 +38,37 @@ int main(int argc, char *argv[])
 
 #ifdef MPI
   int rank = -1, nb_proc = 0, ip = 0;
-  int pts_per_proc = 0, buffer_size = 0;
-  int *arr_start;
   MPI_Status status;
   int sendtag = 0, recvtag = 0;
+  double *halo_left, *halo_right;
+  double *halo_left_recv, *halo_right_recv;
 
   MPI_Init(&argc, &argv);
-#endif
  
-  read_2D_array("bottle.dat", &arr);
-#ifdef MPI
   MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   num_threads = nb_proc;
-
-  arr_start = malloc(nb_proc*sizeof(int));
-  printf("Hola MPI from process %d over %d\n", rank, nb_proc);
-
-  pts_per_proc = (arr.nx + nb_proc - 1)/nb_proc;
-  istart = rank*pts_per_proc;
-  for (ip=0; ip < nb_proc; ip++)
-  {
-    arr_start[ip] = ip*pts_per_proc*arr.ny;
-    printf("arrstart[%d] = %d\n", ip, arr_start[ip]);
-  }
-
-  int tmp = (rank+1)*pts_per_proc;
-  //printf("pts_per_proc = %d, tmp = %d\n", pts_per_proc, tmp);
-  iend = min_int(tmp, arr.nx);
-  buffer_size = (iend - istart)*arr.ny;
-  printf("iend = %d, istart = %d => buffer size: %d\n", iend, istart, buffer_size);
-  //exit(1);
+  printf("Hola rank %d\n", rank);
+  read_input("bottle.dat", &arr);
+  printf("end input rank %d\n", rank);
+  halo_left = malloc(arr.ny*sizeof(double));
+  halo_right = malloc(arr.ny*sizeof(double));
+  halo_left_recv = malloc(arr.ny*sizeof(double));
+  halo_right_recv = malloc(arr.ny*sizeof(double));
 #else
-  istart = 0;
-  iend = arr.nx;
+  read_input("bottle.dat", &arr);
+  arr.istart = 0;
+  arr.iend = arr.nx;
 #endif
  
-  double sum = sum_double(arr.input, arr.nx, arr.ny);
-  printf("sum input = %lf\n", sum);
+  //double sum = sum_double(arr.input, arr.nx, arr.ny);
+  //printf("rank %d: sum input = %lf\n", rank, sum);
 
   arr.dx = 0.01;
   arr.dy = 0.01;
   arr.dx2 = arr.dx*arr.dx;
   arr.dy2 = arr.dy*arr.dy;
   dt = arr.dx2 * arr.dy2 / (2.0 * alpha * (arr.dx2 + arr.dy2));
-
-  //arr.laplacian = malloc(arr.nx*arr.ny*sizeof(double));
-  arr.temp = malloc(arr.nx*arr.ny*sizeof(double));
 
   /* Get the start time stamp */
   start_clock = clock();
@@ -94,69 +78,133 @@ int main(int argc, char *argv[])
   {
     for (it = 0; it < nsteps; it++)
     {
-      //initialise_array(arr.laplacian, arr.nx, arr.ny, 0.0);
-      //calc_laplacian(&arr);
+      /*
+      sprintf(fname, "bef_loop_temp_step_%d_rank_%d.txt", it, rank);
+      remove_spaces(fname, trim);
+      printf("outname: %s\n", trim);
+      write_2D_array(arr.input, arr.nx-arr.istart, arr.ny, trim);
+      */
+      //printf("it = %d, rank = %d\n", it, rank);
 
       #pragma omp for
-      for (i=istart; i<iend; i++)
+      for (i=arr.istart; i<arr.iend; i++)
       { 
+#ifdef MPI
+        /*
+          printf("rank %d: get_index(arr.istart, 0, arr.nx, arr.ny) = %d, buff = %d\n",
+              rank, get_index(arr.istart, 0, arr.nx, arr.ny), arr.buffer_size);
+          printf("rank %d: get_index(arr.iend-1, 0, arr.nx, arr.ny) = %d, buff = %d\n",
+              rank, get_index(arr.iend-1, 0, arr.nx, arr.ny), arr.buffer_size);
+              */
+          memcpy(halo_left, &arr.init_array[get_index(arr.istart, 0, arr.nx, arr.ny)], 
+              arr.ny*sizeof(double));
+          memcpy(halo_right, &arr.init_array[get_index(arr.iend-1, 0, arr.nx, arr.ny)], 
+              arr.ny*sizeof(double));
+        if (rank == 0)
+        {
+          MPI_Send(halo_right, arr.ny, MPI_DOUBLE, rank+1, sendtag, MPI_COMM_WORLD);
+          MPI_Recv(halo_right_recv, arr.ny, MPI_DOUBLE, rank+1, recvtag, MPI_COMM_WORLD, &status);
+        }
+        else if (rank == nb_proc-1)
+        {
+          MPI_Send(halo_left, arr.ny, MPI_DOUBLE, rank-1, sendtag, MPI_COMM_WORLD);
+          MPI_Recv(halo_left_recv, arr.ny, MPI_DOUBLE, rank-1, recvtag, MPI_COMM_WORLD, &status);
+        }
+        else
+        {
+          MPI_Send(halo_right, arr.ny, MPI_DOUBLE, rank+1, sendtag, MPI_COMM_WORLD);
+          MPI_Recv(halo_right_recv, arr.ny, MPI_DOUBLE, rank+1, recvtag, MPI_COMM_WORLD, &status);
+          MPI_Send(halo_left, arr.ny, MPI_DOUBLE, rank-1, sendtag, MPI_COMM_WORLD);
+          MPI_Recv(halo_left_recv, arr.ny, MPI_DOUBLE, rank-1, recvtag, MPI_COMM_WORLD, &status);
+        }
+        //printf("i = %d, rank = %d\n", i, rank);
+#endif
         for (j=0; j<arr.ny; j++)
         { 
+#ifdef MPI
+          if (i == 0 && rank >0)
+          {
+            fact1 = (halo_left[j] - 
+                    2.0*arr.init_array[get_index(i, j, arr.nx, arr.ny)-arr.istart*arr.ny] 
+                    + arr.init_array[get_index(i+1, j, arr.nx, arr.ny)-arr.istart*arr.ny])/(arr.dx2);
+          }
+          if (i == arr.nx-1 && rank <nb_proc-1)
+          {
+            fact1 = (arr.init_array[get_index(i-1, j, arr.nx, arr.ny)-arr.istart*arr.ny] - 
+                    2.0*arr.init_array[get_index(i, j, arr.nx, arr.ny)-arr.istart*arr.ny] 
+                    + halo_right[i])/(arr.dx2);
+          }
+          else 
+          {
+            fact1 = (arr.init_array[get_index(i-1, j, arr.nx, arr.ny)-arr.istart*arr.ny] - 
+                    2.0*arr.init_array[get_index(i, j, arr.nx, arr.ny)-arr.istart*arr.ny] 
+                    + arr.init_array[get_index(i+1, j, arr.nx, arr.ny)-arr.istart*arr.ny])/(arr.dx2);
+          }
+          fact2 = (arr.init_array[get_index(i, j-1, arr.nx, arr.ny)-arr.istart*arr.ny] - 
+                  2.0*arr.init_array[get_index(i, j, arr.nx, arr.ny)-arr.istart*arr.ny] 
+                  + arr.init_array[get_index(i, j+1, arr.nx, arr.ny)-arr.istart*arr.ny])/(arr.dy2);
+          arr.temp[get_index(i, j, arr.nx, arr.ny)-arr.istart*arr.ny] = 
+            arr.init_array[get_index(i, j, arr.nx, arr.ny)-arr.istart*arr.ny]
+            + dt*alpha*(fact1+fact2);
+
+#else
           fact1 = (arr.input[get_index(i-1, j, arr.nx, arr.ny)] - 
                   2.0*arr.input[get_index(i, j, arr.nx, arr.ny)] 
                   + arr.input[get_index(i+1, j, arr.nx, arr.ny)])/(arr.dx2);
+ 
           fact2 = (arr.input[get_index(i, j-1, arr.nx, arr.ny)] - 
                   2.0*arr.input[get_index(i, j, arr.nx, arr.ny)] 
                   + arr.input[get_index(i, j+1, arr.nx, arr.ny)])/(arr.dy2);
           arr.temp[get_index(i, j, arr.nx, arr.ny)] = 
             arr.input[get_index(i, j, arr.nx, arr.ny)]
             + dt*alpha*(fact1+fact2);
-            //arr.laplacian[get_index(i, j, arr.nx, arr.ny)];
+#endif
         }
       }
       //sum = sum_square_double(arr.temp, arr.nx, arr.ny);
       //printf("it = %d, proc = %d, sum temp = %lf\n", it, rank, sum);
-      //if (it == 50) exit(1);
-
 #ifdef MPI
-      // Copy everythin into master proc
-      if (rank > 0)
+      /*
+      sprintf(fname, "bef_gather_temp_step_%d_rank_%d.txt", it, rank);
+      remove_spaces(fname, trim);
+      printf("outname: %s\n", trim);
+      write_2D_array(arr.temp, arr.nx-arr.istart, arr.ny, trim);
+      */
+
+      MPI_Gatherv(arr.temp, arr.buffer_size, MPI_DOUBLE, arr.input, 
+          arr.recvcounts, arr.displ, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+      //MPI_Allgather(arr.temp, recvcounts[rank], MPI_DOUBLE, arr.input,
+      //    recvcounts[rank], MPI_DOUBLE, MPI_COMM_WORLD);
+
+
+      /*
+      sprintf(fname, "temp_step_%d_rank_%d.txt", it, rank);
+      remove_spaces(fname, trim);
+      printf("outname: %s\n", trim);
+      write_2D_array(arr.input, arr.nx, arr.ny, trim);
+
+      if (it == 5) exit(1);
+      */
+
+      if (rank == 0)
       {
-        MPI_Send(&arr.temp[arr_start[rank]], buffer_size, MPI_DOUBLE, 0, sendtag, 
-            MPI_COMM_WORLD);
+        sprintf(fname, "bottle_openmp/temp_step_%d.txt", it);
+        remove_spaces(fname, trim);
+        printf("outname: %s\n", trim);
+        //memcpy(arr.input, arr.temp, arr.nx*arr.ny*sizeof(double));
+        //printf("end memcpy\n");
+        write_2D_array(arr.input, arr.nx, arr.ny, trim);
       }
-      else if (rank == 0)
-      {
-        for (ip = 1; ip < nb_proc; ip++)
-        {
-          MPI_Recv(&arr.temp[arr_start[ip]], buffer_size, MPI_DOUBLE, ip, recvtag, 
-              MPI_COMM_WORLD, &status);
-        }
-        //sum = sum_square_double(arr.temp, arr.nx, arr.ny);
-        //printf("it = %d, proc = %d, sum temp after recv= %lf\n", it, rank, sum);
-      //MPI_Allgather();
-      //if (rank > 0)
-#endif
+      distribut_array(arr.input, arr.init_array, arr.buffer_size,
+          rank, nb_proc, arr.displ);
+#else
       #pragma omp master
       {
         sprintf(fname, "bottle_openmp/temp_step_%d.txt", it);
         remove_spaces(fname, trim);
         printf("outname: %s\n", trim);
-        write_2D_array(arr.temp, arr.nx, arr.ny, trim);
         memcpy(arr.input, arr.temp, arr.nx*arr.ny*sizeof(double));
-      }
-#ifdef MPI
-        for (ip = 1; ip < nb_proc; ip++)
-        {
-          MPI_Send(&arr.input[arr_start[ip]], buffer_size, MPI_DOUBLE, ip, sendtag, 
-            MPI_COMM_WORLD);
-        }
-      }
-
-      if (rank >0)
-      {
-        MPI_Recv(&arr.temp[arr_start[rank]], buffer_size, MPI_DOUBLE, 0, recvtag, 
-              MPI_COMM_WORLD, &status);
+        write_2D_array(arr.input, arr.nx, arr.ny, trim);
       }
 #endif
     }
@@ -167,12 +215,13 @@ int main(int argc, char *argv[])
       (double)(clock() - start_clock) /(double)CLOCKS_PER_SEC, num_threads);
 
   printf("free\n");
-  free(arr.input);
-  free(arr.temp);
-  free(arr_start);
-
+  free_arr_str(&arr);
   printf("end free\n");
 #ifdef MPI
+  free(halo_left);
+  free(halo_right);
+  free(halo_left_recv);
+  free(halo_right_recv);
   MPI_Finalize();
   printf("end finalize\n");
 #endif

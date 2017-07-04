@@ -4,9 +4,9 @@
 
 
 int main(int argc, char* argv[]) {
-    int ntasks, my_id, irank;
+    int ntasks, my_id, irank, i, j, count;
     int dims[2];      /* Dimensions of the grid */
-    int coords[2];    /* Coordinates in the grid */
+    int coords[2], new_coords[2];    /* Coordinates in the grid */
     int neighbors[4]; /* Neighbors in 2D grid */
     int period[2] = {1, 1};
     MPI_Comm comm2d;
@@ -35,13 +35,32 @@ int main(int argc, char* argv[]) {
     }
 
     /* Create the 2D Cartesian communicator */
-    /* TO DO */
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, period, 0, &comm2d);
 
     /* Find out and store the neighboring ranks */
-    /* TO DO */
+    MPI_Cart_coords(comm2d, my_id, 2, coords);
+    count = 0;
+    for (i = 0; i < 2; i++)
+    {
+      if (i == 0) new_coords[1] = coords[1];
+      else if (i == 1) new_coords[0] = coords[0];
+
+      if (coords[i] == dims[i]-1) new_coords[i] = 0;
+      else new_coords[i] = coords[i] +1;
+
+      MPI_Cart_rank(comm2d, new_coords, &neighbors[count]);
+      count += 1;
+
+      if (coords[i] == 0) new_coords[i] = dims[i]-1;
+      else new_coords[i] = coords[i] -1;
+
+      MPI_Cart_rank(comm2d, new_coords, &neighbors[count]);
+      count += 1;
+    }
 
     /* Find out and store also the Cartesian coordinates of a rank */
-    /* TO DO */
+    //MPI_Cart_coords(comm2d, my_id, 2, coords);
+    printf("rank: %d => coords = (%d, %d)\n", my_id, coords[0], coords[1]);
 
     for (irank = 0; irank < ntasks; irank++) {
         if (my_id == irank) {

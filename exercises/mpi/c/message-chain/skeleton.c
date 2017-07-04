@@ -6,9 +6,11 @@
 int main(int argc, char *argv[])
 {
     int i, myid, ntasks;
-    int size = 10000000;
+    //int size = 10000000;
+    int size = 10;
     int *message;
     int *receiveBuffer;
+    int sendtag = 0,recvtag = 0;
     MPI_Status status;
 
     double t0, t1;
@@ -28,13 +30,41 @@ int main(int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
     t0 = MPI_Wtime();
 
+    printf("start sendRecv\n");
     /* TODO start */
     /* Send and receive messages as defined in exercise */
-    if (myid < ntasks - 1) {
+    if (ntasks > 1)
+    {
+      if (myid == 0)
+      {
+          MPI_Send(&message, size, MPI_INT, myid+1, sendtag,
+              MPI_COMM_WORLD);
+          MPI_Recv(&receiveBuffer, size, MPI_INT, ntasks-1, recvtag,
+              MPI_COMM_WORLD, &status);
+          printf("Sender: %d. Sent elements: %d. Tag: %d. Receiver: %d\n",
+                 myid, size, myid + 1, myid + 1);
+      }
+      else if (myid == ntasks-1)
+      {
+          MPI_Send(&message, size, MPI_INT, 0, sendtag,
+              MPI_COMM_WORLD);
+          MPI_Recv(&receiveBuffer, size, MPI_INT, myid-1, recvtag,
+              MPI_COMM_WORLD, &status);
+          printf("Sender: %d. Sent elements: %d. Tag: %d. Receiver: %d\n",
+                 myid, size, myid + 1, myid + 1);
+      }
+      else {
+          printf("Hola rank %d\n", myid);
 
-        printf("Sender: %d. Sent elements: %d. Tag: %d. Receiver: %d\n",
-               myid, size, myid + 1, myid + 1);
+          MPI_Send(&message, size, MPI_INT, myid+1, sendtag,
+              MPI_COMM_WORLD);
+          MPI_Recv(&receiveBuffer, size, MPI_INT, myid-1, recvtag,
+              MPI_COMM_WORLD, &status);
+          printf("Sender: %d. Sent elements: %d. Tag: %d. Receiver: %d\n",
+                 myid, size, myid + 1, myid + 1);
+      }
     }
+    printf("end sendRecv\n");
 
     if (myid > 0) {
 
