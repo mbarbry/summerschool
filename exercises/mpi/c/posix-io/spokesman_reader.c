@@ -7,13 +7,13 @@
 #define DATASIZE   64
 #define WRITER_ID   0
 
-void single_reader(int, int *, int);
+void single_reader(int, int *, int, int, int *);
 void ordered_print(int, int, int *, int);
 
 int main(int argc, char *argv[])
 {
-    int my_id, ntasks, localsize;
-    int *localvector;
+    int my_id, ntasks, localsize, i;
+    int *localvector, *istart;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &ntasks);
@@ -33,27 +33,62 @@ int main(int argc, char *argv[])
 
     localsize = DATASIZE / ntasks;
     localvector = (int *) malloc(localsize * sizeof(int));
+    istart = (int *) malloc(ntasks * sizeof(int));
+    
+    for (i =0; i < ntasks; i++)
+      istart[i] = i*localsize;
 
-    single_reader(my_id, localvector, localsize);
+    single_reader(my_id, localvector, localsize, ntasks, istart);
 
     ordered_print(ntasks, my_id, localvector, localsize);
 
     free(localvector);
+    free(istart);
 
     MPI_Finalize();
     return 0;
 }
 
-void single_reader(int my_id, int *localvector, int localsize)
+void single_reader(int my_id, int *localvector, int localsize, int ntask, 
+    int *istart)
 {
     FILE *fp;
     int *fullvector, nread;
-    char *fname = "singlewriter.dat";
+    int sendtag=0, recvtag = 0, i;
+    char *fname = "posix_out.txt";
+    MPI_Status status;
 
     /* TODO: Implement a function that will read the data from a file so that
        a single process does the file io. Use rank WRITER_ID as the io rank */
 
-    free(fullvector);
+    if (my_id == WRITER_ID)
+    {
+      fullvector = malloc(DATASIZE*sizeof(int));
+      FILE *f = fopen(fname, "r");
+      
+      for (i = 0; i < DATASIZE; i++)
+      {
+        fscanf(f, "%d  ", &fullvector[i]);
+      }
+      
+      fclose(f);
+
+      memcpy(localvector, &fullvector[istart[WRITER_ID]], localsize*sizeof(int));
+      if (ntask>1)
+      {
+        for (i=1; i< ntask; i++)
+        {
+          MPI_Send(&fullvector[istart[i]], localsize, MPI_INT, i, sendtag, MPI_COMM_WORLD);
+        }
+      }
+      free(fullvector);
+    }
+    else
+    {
+      MPI_Recv(localvector, localsize, MPI_INT, 0,
+          recvtag, MPI_COMM_WORLD, &status);
+    }
+
 }
 
 /* Try to avoid this type of pattern when ever possible.
